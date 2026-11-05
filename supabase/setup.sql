@@ -72,7 +72,7 @@ create or replace function public.slam_notify_lead() returns trigger
 language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform net.http_post(
-    url     := '__PROJECT_URL__/functions/v1/notify-lead',
+    url     := 'https://ytzxcxyabsicvmslvqhv.supabase.co/functions/v1/notify-lead',
     body    := jsonb_build_object('record', jsonb_build_object('id', new.id)),
     headers := '{"Content-Type": "application/json"}'::jsonb
   );
