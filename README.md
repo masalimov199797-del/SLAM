@@ -1,35 +1,28 @@
 # SLAM — приложение для ежесменной оценки рисков
 
 Демонстрационное приложение (PWA) для ТОО «Востокцветмет», Железнодорожный цех.
-Ставится на Android и iPhone с главного экрана, работает без связи, присылает руководителю push-уведомления о замечаниях.
+Ставится на Android и iPhone с главного экрана, работает без связи, присылает непосредственному руководителю push-уведомления о замечаниях.
 
-Своя база — бесплатный Google Firebase. К системам компании не подключено.
+База и уведомления — бесплатный Supabase. К системам компании не подключено.
 
 ## Состав
 
 | Файл | Что это |
 |---|---|
 | `index.html` | Всё приложение: работник, непосредственный руководитель, администратор |
-| `config.js` | Настройки Firebase и ключ push-уведомлений |
+| `config.js` | Адрес и публичный ключ Supabase, публичный ключ push-уведомлений |
 | `sw.js` | Работа без связи и приём push-уведомлений |
 | `manifest.webmanifest`, `icons/` | Название и иконка приложения на телефоне |
-| `firestore.rules` | Правила доступа к базе |
-| `functions/` | Серверная функция: push руководителю участка при замечании |
+| `supabase/setup.sql` | Таблицы, права доступа и триггер уведомлений |
+| `supabase/functions/notify-lead/index.ts` | Функция: push руководителю участка при замечании |
 
 ## Запуск
 
-1. **Хостинг.** Репозиторий GitHub → Settings → Pages → Source: «Deploy from a branch» → Branch `main`, папка `/ (root)` → Save. Через 1–2 минуты приложение будет доступно по адресу `https://<логин>.github.io/slam/`.
-2. **Правила базы.** Firebase Console → Firestore Database → вкладка «Rules» → вставить содержимое `firestore.rules` → Publish.
-3. **Разрешённый домен.** Firebase Console → Authentication → Settings → Authorized domains → Add domain → `<логин>.github.io`.
-4. **Push-уведомления (нужен тариф Blaze).** Firebase Console → кнопка Upgrade → Blaze. Затем откройте Google Cloud Shell (console.cloud.google.com, значок `>_` вверху справа) и выполните:
-
-```bash
-git clone https://github.com/<логин>/slam.git && cd slam
-npx -y firebase-tools@13 login --no-localhost
-npx -y firebase-tools@13 deploy --only functions --project <projectId>
-```
-
-Команда `login` покажет ссылку: откройте её, войдите тем же Google-аккаунтом и вставьте код обратно в Cloud Shell. При первом развёртывании Firebase попросит включить несколько служб Google Cloud — отвечайте «Y».
+1. **Хостинг.** GitHub → репозиторий → Settings → Pages → Source «Deploy from a branch» → `main`, `/ (root)` → Save. Адрес: `https://<логин>.github.io/slam/`.
+2. **База.** Supabase → SQL Editor → вставить `supabase/setup.sql` (с подставленным адресом проекта) → Run.
+3. **Функция уведомлений.** Supabase → Edge Functions → «Deploy a new function» → «Via Editor» → имя `notify-lead` → вставить `supabase/functions/notify-lead/index.ts` → в настройках функции выключить «Verify JWT» → Deploy.
+4. **Секреты функции.** Edge Functions → Secrets: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (например `mailto:ваша@почта`).
+5. **Настройки приложения.** В `config.js` указать `supabaseUrl` и `supabaseKey` (Project Settings → API).
 
 ## Как пользоваться
 
@@ -38,10 +31,11 @@ npx -y firebase-tools@13 deploy --only functions --project <projectId>
 - **Администратор:** PIN `2222`.
 - **Пример данных:** кнопка «Показать пример данных» в панели (в базу не записывается).
 
-На iPhone push-уведомления работают только если SLAM добавлен на экран «Домой» (Safari → «Поделиться» → «На экран „Домой“»), iOS 16.4 и новее.
+На iPhone push-уведомления работают, только если SLAM добавлен на экран «Домой» (Safari → «Поделиться» → «На экран „Домой“»), iOS 16.4 и новее.
 
 ## Ограничения прототипа
 
 - PIN-коды одинаковы для всех и видны в коде — только для показа.
-- Анонимный вход: любой, у кого есть ссылка, может открыть приложение и видеть данные.
+- Вход без учётных записей: любой, у кого есть ссылка, может открыть приложение и видеть данные.
+- Данные обновляются у руководителя и администратора раз в 15 секунд (и сразу при открытии приложения).
 - Для рабочей версии нужны настоящие учётные записи, роли и размещение по правилам компании.

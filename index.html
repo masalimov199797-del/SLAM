@@ -328,84 +328,105 @@ window.addEventListener("online", () => { S.online = true; trySync(); });
 window.addEventListener("offline", () => { S.online = false; renderTop(); });
 setInterval(() => { if (getQueue().length) trySync(); }, 30000);
 
-/* ===== Подключение к Firebase ===== */
+/* ===== Подключение к Supabase ===== */
 var CFG = self.SLAM_CONFIG || {};
-var FBM = null, fbApp = null, fbMessaging = null;
-function wrapDocSnap(x) { return { exists: x.exists(), data: () => x.data() }; }
-function makeDb(F, fs) {
-  const q = (base, cons) => ({
-    where: (f, op, v) => q(base, cons.concat(F.where(f, op, v))),
-    orderBy: (f, d) => q(base, cons.concat(F.orderBy(f, d))),
-    limit: (k) => q(base, cons.concat(F.limit(k))),
-    onSnapshot: (cb, err) => F.onSnapshot(F.query(base, ...cons), s2 => cb({ docs: s2.docs.map(d => ({ data: () => d.data() })), metadata: { fromCache: s2.metadata.fromCache } }), err)
-  });
+var SB_URL = (CFG.supabaseUrl || "").replace(/\/+$/, ""), SB_KEY = CFG.supabaseKey || "";
+var pollers = new Set();
+function runAllPollers() { pollers.forEach(fn => fn()); }
+async function sbFetch(path, opt = {}) {
+  let r;
+  try {
+    r = await fetch(SB_URL + "/rest/v1/" + path, Object.assign({}, opt, { headers: Object.assign({ apikey: SB_KEY, "Content-Type": "application/json" }, opt.headers || {}) }));
+  } catch (e) { throw { code: "unavailable", message: String(e) }; }
+  if (!r.ok) { const txt = await r.text().catch(() => ""); throw { code: r.status === 401 || r.status === 403 ? "permission-denied" : "http-" + r.status, message: txt }; }
+  const t = await r.text(); return t ? JSON.parse(t) : null;
+}
+const enc = encodeURIComponent;
+const rowToReport = (row) => Object.assign({}, row.data, { review: row.review || null });
+function poll(fetcher, cb, err, ms = 15000) {
+  let busy = false;
+  const run = async () => { if (busy) return; busy = true; try { cb(await fetcher()); } catch (e) { err && err(e); } busy = false; };
+  pollers.add(run); run(); setInterval(run, ms);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") run(); });
+  window.addEventListener("online", run);
+  return () => pollers.delete(run);
+}
+function makeDb() {
+  const snapList = (rows) => ({ docs: rows.map(x => ({ data: () => x })), metadata: { fromCache: false } });
   return {
-    doc: (path) => { const r = F.doc(fs, path); return {
-      set: (d) => F.setDoc(r, d), update: (d) => F.updateDoc(r, d), delete: () => F.deleteDoc(r),
-      get: async () => wrapDocSnap(await F.getDoc(r)),
-      onSnapshot: (cb, err) => F.onSnapshot(r, x => cb(wrapDocSnap(x)), err) }; },
-    collection: (path) => q(F.collection(fs, path), [])
+    doc(path) {
+      const [col, id] = path.split("/");
+      if (col === "reports") return {
+        set: async (d) => { const data = Object.assign({}, d); delete data.review;
+          await sbFetch("reports", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+            body: JSON.stringify({ id, site: d.site, worker_id: d.workerId, created_at: d.createdAt, data }) }); runAllPollers(); },
+        update: async (d) => { await sbFetch("reports?id=eq." + enc(id), { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ review: d.review }) }); runAllPollers(); }
+      };
+      if (col === "photos") return {
+        set: (d) => sbFetch("photos", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+          body: JSON.stringify({ id, report_id: d.reportId, data: d.data }) }),
+        get: async () => { const rows = await sbFetch("photos?select=data&id=eq." + enc(id)); return { exists: !!(rows && rows.length), data: () => ({ data: rows[0].data }) }; }
+      };
+      if (col === "config") return {
+        set: async (d) => { await sbFetch("config", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify({ key: id, value: d, updated_at: new Date().toISOString() }) }); runAllPollers(); },
+        onSnapshot: (cb, err) => poll(async () => { const rows = await sbFetch("config?select=value&key=eq." + enc(id)); return { exists: !!(rows && rows.length), data: () => rows[0].value }; }, cb, err, 60000)
+      };
+      if (col === "leads") return {
+        set: (d) => sbFetch("push_subs", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify({ endpoint: d.endpoint, site: d.site, sub: d.sub, updated_at: new Date().toISOString() }) }),
+        delete: () => sbFetch("push_subs?endpoint=eq." + enc(id), { method: "DELETE" })
+      };
+      throw new Error("unknown path " + path);
+    },
+    collection(path) {
+      const q = { filters: [], order: null, limit: null };
+      const api = {
+        where(f, op, v) { if (f === "workerId" && op === "==") q.filters.push("worker_id=eq." + enc(v)); return api; },
+        orderBy() { q.order = "created_at.desc"; return api; },
+        limit(k) { q.limit = k; return api; },
+        onSnapshot(cb, err) {
+          const url = "reports?select=data,review&" + q.filters.map(f => f + "&").join("") + "order=created_at.desc&limit=" + (q.limit || 200);
+          return poll(async () => snapList(((await sbFetch(url)) || []).map(rowToReport)), cb, err, 15000);
+        }
+      };
+      return api;
+    }
   };
 }
 setTimeout(async () => {
-  if (!CFG.firebase || !CFG.firebase.apiKey) { S.remoteNote = "Приложение не подключено к базе (нет настроек Firebase). Оценки сохраняются на телефоне."; render(); return; }
-  try {
-    const [appM, authM, fsM] = await Promise.all([import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"), import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js"), import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js")]);
-    FBM = { appM, authM, fsM };
-    fbApp = appM.initializeApp(CFG.firebase);
-    const auth = authM.getAuth(fbApp);
-    await new Promise(res => { const off = authM.onAuthStateChanged(auth, u => { off(); res(u); }); });
-    if (!auth.currentUser) await authM.signInAnonymously(auth);
-    db = makeDb(fsM, fsM.getFirestore(fbApp));
-  } catch (e) {
-    db = null; S.online = false;
-    S.remoteNote = navigator.onLine ? "Не удалось подключиться к базе. Оценки сохраняются на телефоне." : "Нет связи. Оценки сохраняются на телефоне и отправятся позже.";
-    render();
-    window.addEventListener("online", () => location.reload(), { once: true });
-    return;
-  }
+  if (!SB_URL || !SB_KEY) { S.remoteNote = "Приложение не подключено к базе (нет настроек Supabase). Оценки сохраняются на телефоне."; render(); return; }
+  db = makeDb();
   S.remoteNote = "";
   try {
     db.doc("config/directory").onSnapshot(s => { S.dir = s.exists ? s.data() : null; if (S.view === "wizard" && S.step === 0) render(); }, () => {});
   } catch (e) {}
   try {
     db.collection("reports").where("workerId", "==", device).onSnapshot(s => {
-      S.mine = s.docs.map(d => d.data()); if (S.view === "home") render();
+      S.mine = s.docs.map(d => d.data()); S.online = true; if (S.view === "home") render();
     }, () => {});
   } catch (e) {}
   if (S.staff) startAll();
   render();
   trySync();
-  initMessaging();
+  if (S.staff && S.staff.role === "lead" && typeof Notification !== "undefined" && Notification.permission === "granted") registerPush(false);
 }, 0);
 
-/* ===== Push-уведомления (Firebase Cloud Messaging) ===== */
+/* ===== Push-уведомления (Web Push) ===== */
 function pushSupported() { return "Notification" in window && "serviceWorker" in navigator && "PushManager" in window; }
-async function initMessaging() {
-  if (!fbApp || !pushSupported() || !CFG.vapidKey) return;
-  try {
-    const mM = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js");
-    if (!(await mM.isSupported())) return;
-    fbMessaging = { mM, m: mM.getMessaging(fbApp) };
-    mM.onMessage(fbMessaging.m, (p) => {
-      const n = p.notification || {}, d = p.data || {};
-      showNotice(n.title || "Новое замечание", n.body || "", d.reportId || null); beep();
-    });
-    if (S.staff && S.staff.role === "lead" && Notification.permission === "granted") registerPush(false);
-  } catch (e) {}
-}
+function b64urlToBytes(s) { const p = "=".repeat((4 - s.length % 4) % 4); const b = atob((s + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(b, c => c.charCodeAt(0)); }
 async function registerPush(interactive) {
   if (!pushSupported()) { if (interactive) toast(isIOS() ? "На iPhone сначала добавьте SLAM на экран «Домой» и откройте оттуда" : "Этот браузер не поддерживает уведомления"); return; }
-  if (!fbMessaging) { await initMessaging(); if (!fbMessaging) { if (interactive) toast(CFG.vapidKey ? "Уведомления пока недоступны" : "Уведомления не настроены (нет ключа VAPID)"); return; } }
+  if (!db || !CFG.vapidPublicKey) { if (interactive) toast("Уведомления не настроены"); return; }
   try {
     const perm = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
     if (perm !== "granted") { if (interactive) toast("Уведомления запрещены в настройках телефона"); render(); return; }
     const reg = await navigator.serviceWorker.ready;
-    const token = await fbMessaging.mM.getToken(fbMessaging.m, { vapidKey: CFG.vapidKey, serviceWorkerRegistration: reg });
-    if (!token) return;
-    const key = token.slice(-40).replace(/[^A-Za-z0-9_-]/g, "_");
-    await db.doc("leads/" + key).set({ token, site: S.staff.site, updatedAt: new Date().toISOString(), ua: navigator.userAgent.slice(0, 120) });
-    store.set("pushKey", key); S.pushOn = true;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlToBytes(CFG.vapidPublicKey) });
+    const json = sub.toJSON();
+    await db.doc("leads/" + json.endpoint).set({ endpoint: json.endpoint, site: S.staff.site, sub: json });
+    store.set("pushKey", json.endpoint); S.pushOn = true;
     if (interactive) toast("Уведомления включены"); render();
   } catch (e) { if (interactive) toast("Не удалось включить уведомления"); }
 }
