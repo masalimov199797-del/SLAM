@@ -1,5 +1,5 @@
 /* SLAM service worker: работа без связи + push-уведомления */
-const VERSION = "slam-v11";
+const VERSION = "slam-v12";
 const SHELL = ["./", "index.html", "config.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png", "icons/maskable-512.png"];
 
@@ -21,12 +21,12 @@ self.addEventListener("fetch", (e) => {
   if (url.hostname.endsWith("supabase.co")) return; // запросы к базе не кешируем
 
   if (req.mode === "navigate") {
-    e.respondWith(fetch(req).then(r => { const cp = r.clone(); caches.open(VERSION).then(c => c.put("index.html", cp)); return r; })
+    e.respondWith(fetch(req, { cache: "no-cache" }).then(r => { const cp = r.clone(); caches.open(VERSION).then(c => c.put("index.html", cp)); return r; })
       .catch(() => caches.match("index.html")));
     return;
   }
   if (url.origin === location.origin) {
-    e.respondWith(fetch(req).then(r => { if (r.ok) { const cp = r.clone(); caches.open(VERSION).then(c => c.put(req, cp)); } return r; })
+    e.respondWith(fetch(req, { cache: "no-cache" }).then(r => { if (r.ok) { const cp = r.clone(); caches.open(VERSION).then(c => c.put(req, cp)); } return r; })
       .catch(() => caches.match(req)));
     return;
   }
