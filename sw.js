@@ -1,5 +1,5 @@
 /* SLAM service worker: работа без связи + push-уведомления */
-const VERSION = "slam-v10";
+const VERSION = "slam-v11";
 const SHELL = ["./", "index.html", "config.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png", "icons/maskable-512.png"];
 

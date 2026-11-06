@@ -859,8 +859,8 @@ function vWizard() {
       <div class="card stack"><div class="field"><label for="w-rem">Замечания</label><textarea id="w-rem" class="input" data-bind="remarks" placeholder="Отклонения, инциденты, предложения по повышению безопасности">${esc(d.remarks)}</textarea></div>
         <div class="field"><label>Фото нарушений</label>
           <div class="photos">${d.photos.map((p, i) => `<div class="photo"><img src="${p.data}" alt="Фото ${i + 1}"><button data-a="delPhoto" data-i="${i}" aria-label="Удалить фото">×</button></div>`).join("")}
-            ${d.photos.length < 6 ? `<label class="add-photo" for="w-photo"><span style="font-size:22px">+</span>Сфотографировать<input id="w-photo" type="file" accept="image/*" capture="environment"></label>` : ""}</div>
-          <p class="small muted">До 6 фото. Снимки сжимаются и хранятся на телефоне, пока нет связи.</p></div>
+            ${d.photos.length < 6 ? `<label class="add-photo" for="w-photo"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>Сфотографировать<input id="w-photo" type="file" accept="image/*" capture="environment"></label><label class="add-photo" for="w-gallery"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="10" r="2" fill="currentColor"/><path d="M4 18l5-5 4 4 3-3 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>Из галереи<input id="w-gallery" type="file" accept="image/*" multiple></label>` : ""}</div>
+          <p class="small muted">До 6 фото: сфотографируйте или выберите из галереи. Снимки сжимаются и хранятся на телефоне, пока нет связи.</p></div>
       </div>${nav("next", "Далее")}</div>`;
   }
   const out = OUT[outcome(d)];
@@ -1380,9 +1380,16 @@ document.addEventListener("input", (ev) => {
 });
 document.addEventListener("change", async (ev) => {
   const t = ev.target;
-  if (t.id === "w-photo" && t.files && t.files[0]) {
-    try { const data = await compress(t.files[0]); S.draft.photos.push({ id: uid("p"), data }); saveDraft(); render(); }
-    catch (e) { toast("Не удалось прочитать фото"); }
+  if ((t.id === "w-photo" || t.id === "w-gallery") && t.files && t.files.length && S.draft) {
+    const files = [...t.files], room = 6 - S.draft.photos.length;
+    if (files.length > room) toast("Можно приложить до 6 фото. Добавлено " + Math.max(room, 0));
+    let bad = 0;
+    for (const f of files.slice(0, Math.max(room, 0))) {
+      try { const data = await compress(f); S.draft.photos.push({ id: uid("p"), data }); }
+      catch (e) { bad++; }
+    }
+    if (bad) toast("Не удалось прочитать фото: " + bad);
+    saveDraft(); render();
   }
   if (t.dataset.f) { S[t.dataset.f] = t.value; render(); }
   if (t.dataset.a2 === "dirSite") { S.dirSite = t.value; render(); }
