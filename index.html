@@ -203,6 +203,19 @@ tr.click{cursor:pointer}tr.click:hover td{background:var(--sunk)}
 .seg button{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 14px;font-weight:600;min-height:44px;flex:1}
 .seg button.on{border-color:var(--blue);background:var(--sky);color:var(--blue)}
 .footer-link{text-align:center;padding-top:8px}
+.shift{display:flex;gap:12px;align-items:center;border-radius:12px;padding:12px 14px}
+.shift.go{background:var(--go-bg)}.shift.warn{background:var(--warn-bg)}.shift.stop{background:var(--stop-bg)}
+.shift-ic{flex:none;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;font-size:18px}
+.shift.go .shift-ic{background:var(--go)}.shift.warn .shift-ic{background:var(--warn)}.shift.stop .shift-ic{background:var(--stop)}
+.shift-t{min-width:0;display:flex;flex-direction:column;gap:2px}
+.shift-t b{font-size:15px;color:var(--ink)}
+.shift-t span{font-size:13px;color:var(--muted)}
+.shift-t .meta{font-size:12px;letter-spacing:.04em;text-transform:uppercase;font-weight:600}
+.shift.go .meta{color:var(--go)}.shift.warn .meta{color:var(--warn)}.shift.stop .meta{color:var(--stop)}
+.rule{display:flex;flex-direction:column;gap:8px}
+.rule-head{display:flex;align-items:center;gap:8px}
+.rule-ic{flex:none;width:28px;height:28px;border-radius:8px;background:var(--sky);color:var(--blue);display:grid;place-items:center}
+.rule p.rt{font-size:15px;line-height:1.45}
 .staff-bar{display:flex;align-items:center;gap:10px;width:100%;border:1px solid var(--line);background:var(--surface);color:var(--blue);border-radius:12px;padding:10px 14px;min-height:46px;font-weight:600;text-align:left}
 .staff-bar svg{flex:none}
 .staff-bar .lbl{flex:1 1 auto;min-width:0;font-size:14px}
@@ -512,7 +525,7 @@ function outcome(d) {
   return "go";
 }
 const OUT = {
-  go:   { cls: "go",   pill: "GO", title: "Приступай к выполнению задания", text: "Все ответы в белых ячейках. Опасности под контролем." },
+  go:   { cls: "go",   pill: "Можно приступать", title: "Приступай к выполнению задания", text: "Все ответы в белых ячейках. Опасности под контролем." },
   warn: { cls: "warn", pill: "К руководителю", title: "Обратитесь к непосредственному руководителю", text: "Есть отметки в серых ячейках или опасность без средства контроля. Возможны неконтролируемые опасности. Непосредственный руководитель определит средства контроля вместе с вами." },
   stop: { cls: "stop", pill: "Остановлено", title: "Не приступайте к заданию", text: "Нет готовности к выполнению задания (вопросы 1–4). Обратитесь к непосредственному руководителю для уточнения порядка работ или изменения задания на смену." }
 };
@@ -683,6 +696,53 @@ function myReports() {
   return [...map.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(r => Object.assign({}, r, { queued: queued.has(r.id) }));
 }
 
+/* Смены: 08:00–20:00 дневная, 20:00–08:00 ночная */
+function shiftInfo(now = new Date()) {
+  const h = now.getHours(), start = new Date(now);
+  start.setMinutes(0, 0, 0);
+  if (h >= 8 && h < 20) { start.setHours(8); return { name: "Дневная смена", hours: "08:00–20:00", start }; }
+  if (h < 8) start.setDate(start.getDate() - 1);
+  start.setHours(20);
+  return { name: "Ночная смена", hours: "20:00–08:00", start };
+}
+const WD = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+const MON = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+function shiftCard(list) {
+  const now = new Date(), sh = shiftInfo(now);
+  const last = list.find(r => new Date(r.createdAt) >= sh.start);
+  const meta = `${sh.name} · ${WD[now.getDay()]}, ${now.getDate()} ${MON[now.getMonth()]}`;
+  let cls = "warn", ic = "!", title = "SLAM на эту смену ещё не пройден", sub = "Пройдите оценку рисков перед началом работы";
+  if (last) {
+    const t = fmtTime(last.createdAt);
+    if (last.outcome === "go") { cls = "go"; ic = "✓"; title = "SLAM пройден в " + t; sub = "Можно приступать к заданию"; }
+    else if (last.outcome === "warn") { cls = "warn"; ic = "!"; title = "SLAM пройден в " + t; sub = "Обратитесь к непосредственному руководителю"; }
+    else { cls = "stop"; ic = "✕"; title = "Работа остановлена в " + t; sub = "Не приступайте к заданию без решения руководителя"; }
+  }
+  return `<div class="shift ${cls}" role="status"><span class="shift-ic" aria-hidden="true">${ic}</span><div class="shift-t"><span class="meta">${esc(meta)}</span><b>${esc(title)}</b><span>${esc(sub)}</span></div></div>`;
+}
+/* Правило дня: из инструкции И-(18)-05 и блокнота безопасности */
+const DAY_RULES = [
+  "Если вы не можете контролировать какую-либо из опасностей, никогда не приступайте к выполнению задания. Сообщите непосредственному руководителю.",
+  "Приступать к осмотру рабочего места можно только после ответа «Да» на первые четыре вопроса SLAM.",
+  "Если изменилось состояние рабочего места или условия работы, остановите работу и проведите SLAM заново.",
+  "Перед началом работы полностью отключите и изолируйте все виды энергии и проверьте надёжность блокировки от случайного включения.",
+  "Проверьте, что ваши СИЗ соответствуют заданию и находятся в исправном состоянии.",
+  "Оборудование и инструмент должны соответствовать выполняемой работе и быть исправными.",
+  "Знайте, кто ещё работает на вашем участке, и убедитесь, что люди рядом знают о вашем присутствии.",
+  "Проверьте, что воздух рабочей зоны и микроклимат на рабочем месте безопасны.",
+  "Подумайте: может ли на вас что-то упасть, можете ли вы уронить что-то на других, упасть с высоты или оказаться зажатым?",
+  "Знайте правила поведения при чрезвычайных и нештатных ситуациях на своём рабочем месте.",
+  "После выполнения задания оставьте рабочее место без опасностей и сообщите коллективу об условиях работы.",
+  "Помогите коллеге провести оценку рисков SLAM, особенно новому работнику."
+].concat(ENERGIES.map(e => `Вид энергии «${e.name}»: ${e.hint.toLowerCase()}. Определите средства контроля до начала работы.`))
+ .concat(["Изоляция энергии", "Работы на высоте", "Вредные вещества", "Транспортные средства и самоходное оборудование", "Обрушение грунта, кровли", "Электрическая безопасность", "Ликвидация аварий", "Подъёмное оборудование и крановые работы", "Пожары и взрывы", "Взрывчатые вещества", "Шины и диски", "Внезапный вывал, выброс горной массы, воды, газа", "Устойчивость поверхности борта", "Ограждения оборудования", "Работы в замкнутых пространствах"]
+   .map(w => `«${w}» — один из 15 опасных видов работ. Оценивайте риски при таких работах особенно внимательно.`));
+function ruleCard() {
+  const now = new Date(), day = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
+  const text = DAY_RULES[day % DAY_RULES.length];
+  return `<div class="card rule"><div class="rule-head"><span class="rule-ic" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8.4-8 9-4.6-.6-8-4.5-8-9V6l8-3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8.5 12l2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><p class="eyebrow">Правило дня</p></div><p class="rt">${esc(text)}</p><p class="small muted">Инструкция И-(18)-05 «SLAM»</p></div>`;
+}
+setInterval(() => { const a = document.activeElement; if (S.view === "home" && !(a && a.matches && a.matches("input,textarea,select"))) render(); }, 60000);
 function vHome() {
   const p = S.profile, list = myReports();
   const today = dayKey(new Date());
@@ -693,6 +753,7 @@ function vHome() {
     ${staffBar()}
     <div class="hero">
       <div class="stack" style="gap:2px"><p class="muted small">${esc(p.position)} · ${esc(siteName(p.site))}</p><h1>${esc(p.firstName)} ${esc(p.lastName)}</h1></div>
+      ${shiftCard(list)}
       <div class="slam-word" aria-label="STOP, LOOK, ASSESS, MANAGE">
         <span><b>S</b><i>Остановись</i></span><span><b>L</b><i>Осмотри</i></span><span><b>A</b><i>Оцени</i></span><span><b>M</b><i>Управляй</i></span>
       </div>
@@ -701,6 +762,7 @@ function vHome() {
       <p class="small muted">Оценка проводится в начале смены, при смене наряд-задания, при изменении условий на рабочем месте и при подключении нового персонала.</p>
     </div>
     ${S.remoteNote && !db ? `<div class="banner info">${esc(S.remoteNote)}</div>` : ""}
+    ${ruleCard()}
     <div class="card stack">
       <div class="row" style="justify-content:space-between"><h2>Мои оценки</h2><span class="pill info">Сегодня: ${todays.length}</span></div>
       ${list.length ? `<div class="list">${list.slice(0, 15).map(r => mineItem(r)).join("")}</div>`
@@ -891,7 +953,7 @@ function filtersBar(withStatus) {
   return `<div class="filters">
     <select class="input" id="f-period" data-f="period" aria-label="Период">${[["1", "Сегодня"], ["7", "7 дней"], ["30", "30 дней"]].map(([v, l]) => `<option value="${v}" ${S.period === v ? "selected" : ""}>${l}</option>`).join("")}</select>
     ${S.staff.role === "admin" ? `<select class="input" id="f-site" data-f="siteFilter" aria-label="Участок"><option value="all">Все участки</option>${SITES.map(s => `<option value="${s.id}" ${S.siteFilter === s.id ? "selected" : ""}>${s.name}</option>`).join("")}</select>` : ""}
-    ${withStatus ? `<select class="input" id="f-status" data-f="statusFilter" aria-label="Результат"><option value="all">Все результаты</option><option value="go" ${S.statusFilter === "go" ? "selected" : ""}>GO</option><option value="warn" ${S.statusFilter === "warn" ? "selected" : ""}>К руководителю</option><option value="stop" ${S.statusFilter === "stop" ? "selected" : ""}>Остановлено</option><option value="photo" ${S.statusFilter === "photo" ? "selected" : ""}>С фото</option><option value="remarks" ${S.statusFilter === "remarks" ? "selected" : ""}>С замечаниями</option></select>` : ""}
+    ${withStatus ? `<select class="input" id="f-status" data-f="statusFilter" aria-label="Результат"><option value="all">Все результаты</option><option value="go" ${S.statusFilter === "go" ? "selected" : ""}>Можно приступать</option><option value="warn" ${S.statusFilter === "warn" ? "selected" : ""}>К руководителю</option><option value="stop" ${S.statusFilter === "stop" ? "selected" : ""}>Остановлено</option><option value="photo" ${S.statusFilter === "photo" ? "selected" : ""}>С фото</option><option value="remarks" ${S.statusFilter === "remarks" ? "selected" : ""}>С замечаниями</option></select>` : ""}
   </div>`;
 }
 
@@ -928,7 +990,7 @@ function vOverview() {
       <div class="card stack"><div class="row" style="justify-content:space-between"><h2>По участкам</h2><div class="keys"><span><i></i>Всего</span><span><i class="w"></i>Серые ячейки</span></div></div>
         ${bySite.map(x => `<div class="hbar"><span>${esc(x.s.name)}</span><div class="track"><i class="a" style="width:${(x.n - x.w) / maxSite * 100}%"></i><i class="w" style="width:${x.w / maxSite * 100}%"></i></div><span class="n">${x.n}</span></div>`).join("")}
       </div>
-      <div class="card stack"><div class="row" style="justify-content:space-between"><h2>Последние 14 дней</h2><div class="keys"><span><i></i>GO</span><span><i class="w"></i>К руководителю</span></div></div>
+      <div class="card stack"><div class="row" style="justify-content:space-between"><h2>Последние 14 дней</h2><div class="keys"><span><i></i>Можно приступать</span><span><i class="w"></i>К руководителю</span></div></div>
         <div class="trend">${tr.map((x, i) => `<div class="col" title="${fmtDate(x.d)}: ${x.n}"><span class="v">${x.n || ""}</span><div class="bar" style="height:${x.n / maxT * 100}%"><i style="height:${x.n ? (x.n - x.w) / x.n * 100 : 0}%"></i><i class="w" style="height:${x.n ? x.w / x.n * 100 : 0}%"></i></div><small>${i % 2 === 1 || days.length < 8 ? x.d.getDate() : ""}</small></div>`).join("")}</div>
       </div>
       <div class="card stack"><h2>Частые отметки в серых ячейках</h2>
