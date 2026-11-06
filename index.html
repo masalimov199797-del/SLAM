@@ -51,11 +51,15 @@ button{cursor:pointer}
 :focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 .topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:#fff;color:#14336B;border-bottom:3px solid #1C4FA0}
 .topbar-in{display:flex;align-items:center;gap:12px;padding-block:10px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));margin:0 auto}
-.brand{display:flex;align-items:center;gap:12px;background:none;border:0;color:#14336B;padding:0}
+.brand{display:flex;align-items:center;gap:12px;background:none;border:0;color:#14336B;padding:0;min-width:0}
 .brand img{height:30px;width:auto;display:block}
 .brand .sep{width:1px;height:28px;background:#C9D6EA}
+.brand > span{text-align:left;min-width:0}
+.brand b{display:block}
 .brand b{font-family:var(--f-display);font-size:19px;letter-spacing:.06em}
-.brand small{display:block;font-size:11px;color:#5A6E8F;letter-spacing:.02em;text-align:left;line-height:1.2}
+.brand small{display:block;font-size:11px;color:#5A6E8F;letter-spacing:.02em;text-align:left;line-height:1.2;white-space:nowrap}
+.sync-s{display:none}
+@media (max-width:430px){.brand{gap:8px}.brand img{height:24px}.brand .sep{height:24px}.brand b{font-size:17px}.brand small{font-size:10.5px}.sync-l{display:none}.sync-s{display:inline}.sync{padding:6px 9px}}
 .sync{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;background:#E8F0FB;border:0;color:#14336B;border-radius:999px;padding:5px 10px;white-space:nowrap}
 .dot{width:8px;height:8px;border-radius:50%;background:#1B8048;flex:none}
 .dot.off{background:#D98300}.dot.busy{background:#1C4FA0;animation:pulse 1s infinite}
@@ -90,10 +94,11 @@ textarea.input{min-height:72px;resize:vertical}
 .pill.go{background:var(--go-bg);color:var(--go)}.pill.warn{background:var(--warn-bg);color:var(--warn)}.pill.stop{background:var(--stop-bg);color:var(--stop)}.pill.info{background:var(--sky);color:var(--blue)}.pill.wait{background:var(--sunk);color:var(--muted)}
 /* hero for worker */
 .hero{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:14px}
-.slam-word{display:flex;gap:6px;flex-wrap:wrap}
-.slam-word span{display:flex;flex-direction:column;align-items:flex-start;background:var(--sky);border-radius:10px;padding:8px 10px;flex:1 1 0;min-width:68px}
+.slam-word{display:flex;gap:6px;flex-wrap:nowrap}
+.slam-word span{display:flex;flex-direction:column;align-items:flex-start;background:var(--sky);border-radius:10px;padding:8px 9px;flex:1 1 0;min-width:0}
 .slam-word b{font-family:var(--f-display);font-size:20px;color:var(--blue)}
 .slam-word i{font-style:normal;font-size:11px;color:var(--muted);line-height:1.2}
+@media (max-width:400px){.slam-word{gap:5px}.slam-word span{padding:7px 6px}.slam-word b{font-size:18px}.slam-word i{font-size:10px}}
 /* notebook-style cover */
 .cover{background:#fff;color:#14336B;border-radius:16px;border:1px solid var(--line);padding:22px 18px 16px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center}
 .cover-kicker{font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#5A6E8F}
@@ -608,16 +613,16 @@ function compress(file) {
 /* ===== Верхняя панель ===== */
 function renderTop() {
   const q = getQueue().length;
-  let dotCls = "", txt = "";
-  if (S.syncing) { dotCls = "busy"; txt = "Отправка…"; }
-  else if (q) { dotCls = "off"; txt = (S.online && db ? "Не отправлено: " : "Нет связи · в очереди: ") + q; }
-  else if (!db) { dotCls = "off"; txt = "Автономно"; }
-  else { txt = "Всё отправлено"; }
+  let dotCls = "", txt = "", short = "";
+  if (S.syncing) { dotCls = "busy"; txt = "Отправка…"; short = "…"; }
+  else if (q) { dotCls = "off"; txt = (S.online && db ? "Не отправлено: " : "Нет связи · в очереди: ") + q; short = "В очереди: " + q; }
+  else if (!db) { dotCls = "off"; txt = "Автономно"; short = "Офлайн"; }
+  else { txt = "Всё отправлено"; short = ""; }
   const wide = S.view === "admin";
   $("#top").innerHTML = `<header class="topbar"><div class="topbar-in" style="max-width:${wide ? 1120 : 560}px">
     <button class="brand" data-a="home" aria-label="На главную">${logo()}<span><b style="color:#1C4FA0">SLAM</b><small>${esc(ORG.company)}</small></span></button>
     ${S.staff && S.staff.role === "lead" && S.view === "admin" ? (() => { const n = scoped().filter(r => statusOf(r) === "new").length; return `<button class="bellbtn" data-a="tab" data-v="remarks" aria-label="Новых замечаний: ${n}"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0-6 6v4l-2 3h16l-2-3V9a6 6 0 0 0-6-6zm-2 15a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>${n ? `<span class="badge">${n > 99 ? "99+" : n}</span>` : ""}</button>`; })() : ""}
-    <button class="sync" data-a="sync" title="${esc(S.lastErr || "Нажмите, чтобы отправить сейчас")}"><span class="dot ${dotCls}"></span>${esc(txt)}</button>
+    <button class="sync" data-a="sync" title="${esc(S.lastErr || "Нажмите, чтобы отправить сейчас")}"><span class="dot ${dotCls}"></span><span class="sync-l">${esc(txt)}</span>${short ? `<span class="sync-s">${esc(short)}</span>` : ""}</button>
   </div></header>`;
 }
 function logo() { return `<img src="${LOGO_SRC}" alt="KAZ Minerals"><span class="sep" aria-hidden="true"></span>`; }
@@ -678,7 +683,6 @@ function vHome() {
   const draft = store.get("draft", null);
   return `<div class="stack">
     ${installBanner()}
-    ${cover(true)}
     <div class="hero">
       <div class="stack" style="gap:2px"><p class="muted small">${esc(p.position)} · ${esc(siteName(p.site))}</p><h1>${esc(p.firstName)} ${esc(p.lastName)}</h1></div>
       <div class="slam-word" aria-label="STOP, LOOK, ASSESS, MANAGE">
