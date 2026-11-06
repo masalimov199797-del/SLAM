@@ -1030,7 +1030,7 @@ function vOverview() {
       <div class="card stack"><h2>Частые отметки в серых ячейках</h2>
         ${qs.length ? qs.map(([n, c]) => `<div class="hbar"><span>${n}. ${esc(QSHORT[n])}</span><div class="track"><i class="w" style="width:${c / maxQ * 100}%"></i></div><span class="n">${c}</span></div>`).join("") : `<p class="muted small">За период отметок нет.</p>`}
       </div>
-      <div class="card stack"><h2>Частые опасности</h2>
+      <div class="card stack"><h2>Топ-5 опасностей</h2>
         ${topHz.length ? topHz.map(x => `<div class="hbar"><span title="${esc(x.t)}">${esc(x.t.length > 34 ? x.t.slice(0, 33) + "…" : x.t)}</span><div class="track"><i class="a" style="width:${x.n / maxHz * 100}%"></i></div><span class="n">${x.n}</span></div>`).join("") : `<p class="muted small">За период опасности не указаны.</p>`}
         <p class="small muted">Сколько чек-листов за период содержат эту опасность.</p>
       </div>
