@@ -448,7 +448,7 @@ setTimeout(async () => {
   } catch (e) {}
   try {
     db.collection("reports").where("workerId", "==", device).onSnapshot(s => {
-      S.mine = s.docs.map(d => d.data()); S.online = true; if (S.view === "home") render();
+      S.mine = s.docs.map(d => d.data()); S.mineLoaded = true; S.online = true; if (S.view === "home") render();
     }, () => {});
   } catch (e) {}
   if (S.staff) startAll();
@@ -714,9 +714,16 @@ function vRegister() {
 
 function myReports() {
   const map = new Map();
-  store.get("localMine", []).forEach(r => map.set(r.id, r));
-  S.mine.forEach(r => map.set(r.id, r));
   const queued = new Set(getQueue().map(x => x.report.id));
+  // Есть ответ базы — показываем её данные и неотправленное; без связи — локальную копию
+  if (S.mineLoaded) {
+    store.set("localMine", S.mine.slice().sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 40));
+    getQueue().forEach(x => map.set(x.report.id, x.report));
+    S.mine.forEach(r => map.set(r.id, r));
+  } else {
+    store.get("localMine", []).forEach(r => map.set(r.id, r));
+    getQueue().forEach(x => map.set(x.report.id, x.report));
+  }
   return [...map.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(r => Object.assign({}, r, { queued: queued.has(r.id) }));
 }
 
