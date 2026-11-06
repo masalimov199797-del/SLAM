@@ -203,6 +203,23 @@ tr.click{cursor:pointer}tr.click:hover td{background:var(--sunk)}
 .seg button{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 14px;font-weight:600;min-height:44px;flex:1}
 .seg button.on{border-color:var(--blue);background:var(--sky);color:var(--blue)}
 .footer-link{text-align:center;padding-top:8px}
+.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+@media (max-width:420px){.gallery{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}
+.gitem{position:relative;border:0;padding:0;border-radius:12px;overflow:hidden;background:var(--sunk);aspect-ratio:1;max-width:100%;cursor:pointer;text-align:left}
+.gitem img{width:100%;height:100%;object-fit:cover;display:block}
+.gitem .gcap{position:absolute;left:0;right:0;bottom:0;padding:22px 8px 7px;background:linear-gradient(transparent,rgba(5,12,24,.82));color:#fff;font-size:12px;line-height:1.3}
+.gitem .gcap b{display:block;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gitem .gst{position:absolute;top:6px;left:6px}
+.gload{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:12px}
+.viewer{background:var(--bg);width:100%;max-width:720px;max-height:96vh;overflow-y:auto;border-radius:18px 18px 0 0;padding:14px max(16px,env(safe-area-inset-right,0px)) calc(20px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:12px}
+@media (min-width:700px){.viewer{border-radius:18px}}
+.vimg{position:relative;border-radius:12px;overflow:hidden;background:#000;display:grid;place-items:center;min-height:240px}
+.vimg img{max-width:100%;max-height:62vh;object-fit:contain;display:block}
+.vnav{position:absolute;top:50%;transform:translateY(-50%);width:42px;height:42px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:22px;display:grid;place-items:center}
+.vnav.prev{left:8px}.vnav.next{right:8px}
+.vcount{position:absolute;top:8px;right:10px;color:#fff;font-size:12px;background:rgba(0,0,0,.5);padding:3px 8px;border-radius:999px}
+.vmeta{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px;font-size:14px}
+.vmeta dt{color:var(--muted)}.vmeta dd{margin:0;font-weight:600;overflow-wrap:anywhere}
 .shift{display:flex;gap:12px;align-items:center;border-radius:12px;padding:12px 14px}
 .shift.go{background:var(--go-bg)}.shift.warn{background:var(--warn-bg)}.shift.stop{background:var(--stop-bg)}
 .shift-ic{flex:none;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;font-size:18px}
@@ -663,6 +680,7 @@ function render(keepLayer) {
   renderTop();
   const v = { register: vRegister, home: vHome, wizard: vWizard, done: vDone, staffLogin: vStaffLogin, admin: vAdmin }[S.view];
   $("#app").innerHTML = v();
+  fillPhotos($("#app"));
   if (!keepLayer) renderLayer();
 }
 
@@ -907,12 +925,13 @@ function vAdmin() {
   const st = S.staff;
   const title = st.role === "lead" ? "Непосредственный руководитель · " + siteName(st.site) : "Администратор · " + ORG.complex;
   const all = scoped(), nNew = all.filter(r => statusOf(r) === "new").length;
-  const tabs = [["remarks", "Замечания" + (nNew ? " · " + nNew : "")], ["overview", "Обзор"], ["reports", "Все оценки"]];
+  const tabs = [["remarks", "Замечания" + (nNew ? " · " + nNew : "")], ["overview", "Обзор"], ["photos", "Фото"], ["reports", "Все оценки"]];
   if (st.role === "admin") tabs.push(["dir", "Справочники"]);
   let body = "";
   if (S.tab === "overview") body = vOverview();
   else if (S.tab === "remarks") body = vRemarks();
   else if (S.tab === "reports") body = vReportsTab();
+  else if (S.tab === "photos") body = vGallery();
   else body = vDirectory();
   const noData = !S.demo && !allReports().length;
   return `<div class="stack">
@@ -1035,7 +1054,73 @@ function vDirectory() {
 
 /* ===== Карточка оценки ===== */
 const photoCache = {};
+/* Примерные фото для демонстрации (рисуются на телефоне) */
+function demoPhoto(id) {
+  const n = parseInt(String(id).replace(/\D/g, ""), 10) || 1;
+  const c = document.createElement("canvas"); c.width = 640; c.height = 480; const g = c.getContext("2d");
+  const pal = [["#5B6B7A", "#2F3A44"], ["#7A6A4F", "#3E3527"], ["#4F6A7A", "#22313A"], ["#6A5B7A", "#2E2638"]][n % 4];
+  const gr = g.createLinearGradient(0, 0, 0, 480); gr.addColorStop(0, pal[0]); gr.addColorStop(1, pal[1]); g.fillStyle = gr; g.fillRect(0, 0, 640, 480);
+  g.strokeStyle = "rgba(255,255,255,.35)"; g.lineWidth = 10; g.beginPath(); g.moveTo(140, 480); g.lineTo(290, 230); g.moveTo(500, 480); g.lineTo(350, 230); g.stroke();
+  g.lineWidth = 6; for (let y = 260; y < 480; y += 36) { const k = (y - 230) / 250; g.beginPath(); g.moveTo(290 - 150 * k - 20, y); g.lineTo(350 + 150 * k + 20, y); g.stroke(); }
+  g.fillStyle = "#F0A63C"; g.beginPath(); g.moveTo(560, 70); g.lineTo(610, 160); g.lineTo(510, 160); g.closePath(); g.fill();
+  g.fillStyle = "#1A1A1A"; g.font = "bold 56px sans-serif"; g.textAlign = "center"; g.fillText("!", 560, 150);
+  g.fillStyle = "rgba(0,0,0,.45)"; g.fillRect(0, 410, 640, 70); g.fillStyle = "#fff"; g.font = "600 26px sans-serif"; g.fillText("Пример фото нарушения", 320, 455);
+  return c.toDataURL("image/jpeg", 0.8);
+}
+const photoWaiters = {};
+function getPhoto(id) {
+  if (photoCache[id]) return Promise.resolve(photoCache[id]);
+  if (String(id).startsWith("demoP")) return Promise.resolve(photoCache[id] = demoPhoto(id));
+  const local = getQueue().flatMap(x => x.photos).find(p => p.id === id);
+  if (local) return Promise.resolve(photoCache[id] = local.data);
+  if (!db) return Promise.resolve(null);
+  if (!photoWaiters[id]) photoWaiters[id] = db.doc("photos/" + id).get().then(s => s.exists ? (photoCache[id] = s.data().data) : null).catch(() => null).finally(() => { delete photoWaiters[id]; });
+  return photoWaiters[id];
+}
+function fillPhotos(root) {
+  (root || document).querySelectorAll("img[data-pid]:not([src])").forEach(img => {
+    getPhoto(img.dataset.pid).then(src => { if (src) { img.src = src; const l = img.parentElement.querySelector(".gload"); if (l) l.remove(); } else { const l = img.parentElement.querySelector(".gload"); if (l) l.textContent = "Нет фото"; } });
+  });
+}
+function galleryItems() {
+  return inPeriod(scoped()).filter(r => r.photoCount && (r.photoIds || []).length)
+    .flatMap(r => r.photoIds.map((pid, i) => ({ r, pid, i })));
+}
+function vGallery() {
+  const items = galleryItems();
+  return `<div class="stack">${filtersBar(false)}
+    <p class="muted small">Фото нарушений за период: ${items.length}. Нажмите на фото, чтобы увидеть замечание и кто его оставил.</p>
+    ${items.length ? `<div class="gallery">${items.slice(0, 120).map((it, k) => `<button class="gitem" data-a="openPhoto" data-k="${k}" aria-label="Фото: ${esc(remarkSummary(it.r))}">
+        <img data-pid="${esc(it.pid)}" alt="">${photoCache[it.pid] ? "" : `<span class="gload">Загрузка…</span>`}
+        <span class="gst">${stPill(it.r)}</span>
+        <span class="gcap"><b>${esc(remarkSummary(it.r))}</b>${esc(it.r.worker.lastName)} · ${fmtDate(it.r.createdAt)}</span></button>`).join("")}</div>`
+      : `<div class="card empty"><p>За выбранный период фото нарушений нет.</p></div>`}
+  </div>`;
+}
+function vPhotoViewer() {
+  const items = S.galleryItems || [], k = S.photoK, it = items[k];
+  if (!it) return "";
+  const r = it.r;
+  return `<div class="overlay" data-a="closePhoto"><div class="viewer" role="dialog" aria-modal="true" aria-label="Фото нарушения" data-stop="1">
+    <div class="row" style="justify-content:space-between"><h2>Фото нарушения</h2><button class="btn ghost" data-a="closePhoto">Закрыть</button></div>
+    <div class="vimg"><img data-pid="${esc(it.pid)}" alt="Фото нарушения: ${esc(remarkSummary(r))}">${photoCache[it.pid] ? "" : `<span class="gload">Загрузка…</span>`}
+      ${items.length > 1 ? `<button class="vnav prev" data-a="photoNav" data-d="-1" aria-label="Предыдущее фото">‹</button><button class="vnav next" data-a="photoNav" data-d="1" aria-label="Следующее фото">›</button><span class="vcount">${k + 1} / ${items.length}</span>` : ""}</div>
+    <div class="card stack">
+      <div class="row" style="justify-content:space-between;align-items:flex-start;gap:8px"><p style="font-weight:700;font-size:16px;flex:1;min-width:0">${esc(remarkSummary(r))}</p>${stPill(r)}</div>
+      <dl class="vmeta" style="margin:0">
+        <dt>Работник</dt><dd>${esc(r.worker.lastName)} ${esc(r.worker.firstName)}, ${esc(r.worker.position)}</dd>
+        <dt>Участок</dt><dd>${esc(siteName(r.site))}</dd>
+        <dt>Когда</dt><dd>${fmtDate(r.createdAt)}, ${fmtTime(r.createdAt)}</dd>
+        <dt>Задание</dt><dd>${esc(r.task)} · ${esc(r.workplace)}</dd>
+        ${r.review && r.review.comment ? `<dt>Решение</dt><dd>${esc(r.review.comment)}</dd>` : ""}
+      </dl>
+      <button class="btn primary" data-a="photoOpenReport">Открыть чек-лист</button>
+    </div>
+  </div></div>`;
+}
+
 function renderLayer() {
+  if (S.photoK != null && !S.detail) { $("#layer").innerHTML = vPhotoViewer(); fillPhotos($("#layer")); return; }
   const r = S.detail;
   if (!r) { $("#layer").innerHTML = ""; return; }
   const o = OUT[r.outcome], canReview = !!S.staff && S.staff.role === "lead" && !r.queued;
@@ -1070,12 +1155,7 @@ function renderLayer() {
       <p class="small muted">«Не устранено» и «Передано выше» можно позже сменить на «Устранено». Для «Не устранено» нужен комментарий с причиной.</p>
     </div>` : ""}
   </div></div>`;
-  if (!S.demo && db) (r.photoIds || []).forEach(id => {
-    if (photoCache[id]) return;
-    const local = getQueue().flatMap(x => x.photos).find(p => p.id === id);
-    if (local) { photoCache[id] = local.data; renderLayer(); return; }
-    db.doc("photos/" + id).get().then(s => { if (s.exists) { photoCache[id] = s.data().data; if (S.detail === r) renderLayer(); } }).catch(() => {});
-  });
+  (r.photoIds || []).forEach(id => { if (!photoCache[id]) getPhoto(id).then(src => { if (src && S.detail === r) renderLayer(); }); });
 }
 
 /* ===== Пример данных (только для показа, в базу не пишется) ===== */
@@ -1154,6 +1234,10 @@ document.addEventListener("click", async (ev) => {
     case "toggleDemo": S.demo = !S.demo; render(); break;
     case "open": { const r = allReports().find(x => x.id === t.dataset.id); if (r) { S.detail = r; S.rvErr = ""; markSeen(r.id); renderLayer(); } break; }
     case "closeDetail": S.detail = null; renderLayer(); break;
+    case "openPhoto": S.galleryItems = galleryItems(); S.photoK = +t.dataset.k; markSeen(S.galleryItems[S.photoK].r.id); renderLayer(); break;
+    case "closePhoto": if (ev.target.closest("[data-stop]") && t.classList.contains("overlay")) break; S.photoK = null; renderLayer(); break;
+    case "photoNav": { const n = (S.galleryItems || []).length; if (n) { S.photoK = (S.photoK + (+t.dataset.d) + n) % n; renderLayer(); } break; }
+    case "photoOpenReport": { const it = (S.galleryItems || [])[S.photoK]; if (it) { S.photoK = null; S.detail = it.r; S.rvErr = ""; renderLayer(); } break; }
     case "review": {
       const r = S.detail, v = t.dataset.v, name = $("#rv-n").value.trim(), comment = $("#rv-c").value.trim();
       const due = $("#rv-due").value, level = $("#rv-lvl").value;
@@ -1191,6 +1275,8 @@ document.addEventListener("click", async (ev) => {
 });
 document.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape" && S.detail) { S.detail = null; renderLayer(); }
+  else if (ev.key === "Escape" && S.photoK != null) { S.photoK = null; renderLayer(); }
+  if (S.photoK != null && !S.detail && (ev.key === "ArrowRight" || ev.key === "ArrowLeft")) { const n = (S.galleryItems || []).length; if (n) { S.photoK = (S.photoK + (ev.key === "ArrowRight" ? 1 : -1) + n) % n; renderLayer(); } }
   if (ev.key === "Enter" && ev.target.matches("tr[data-a]")) ev.target.click();
 });
 document.addEventListener("input", (ev) => {
