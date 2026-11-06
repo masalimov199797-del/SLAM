@@ -18,7 +18,7 @@
 
 ## Запуск
 
-1. **Хостинг.** GitHub → репозиторий → Settings → Pages → Source «Deploy from a branch» → `main`, `/ (root)` → Save. Адрес: `https://<логин>.github.io/slam/`.
+1. **Хостинг.** GitHub → репозиторий → Settings → Pages → Source «Deploy from a branch» → `main`, `/ (root)` → Save. Адрес: `https://<логин>.github.io/SLAM/`.
 2. **База.** Supabase → SQL Editor → вставить `supabase/setup.sql` (с подставленным адресом проекта) → Run.
 3. **Функция уведомлений.** Supabase → Edge Functions → «Deploy a new function» → «Via Editor» → имя `notify-lead` → вставить `supabase/functions/notify-lead/index.ts` → в настройках функции выключить «Verify JWT» → Deploy.
 4. **Секреты функции.** Edge Functions → Secrets: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (например `mailto:ваша@почта`).
