@@ -203,6 +203,13 @@ tr.click{cursor:pointer}tr.click:hover td{background:var(--sunk)}
 .seg button{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 14px;font-weight:600;min-height:44px;flex:1}
 .seg button.on{border-color:var(--blue);background:var(--sky);color:var(--blue)}
 .footer-link{text-align:center;padding-top:8px}
+.proxy-bar{display:flex;align-items:center;gap:12px;width:100%;border:1.5px solid var(--blue);background:var(--surface);color:var(--blue);border-radius:14px;padding:12px 14px;min-height:56px;text-align:left}
+.proxy-bar .pic{flex:none;width:36px;height:36px;border-radius:50%;background:var(--sky);display:grid;place-items:center}
+.proxy-bar .lbl{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+.proxy-bar .lbl b{font-size:15px}.proxy-bar .lbl small{font-size:12px;color:var(--muted);font-weight:500}
+.proxy-bar .chev{flex:none;color:var(--muted);font-size:20px}
+.banner.proxy{background:var(--warn-bg);color:var(--ink);border:1px solid var(--warn)}
+.pchip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:8px 12px;font-size:13px;font-weight:600;min-height:38px}
 .rep-cards{display:none;flex-direction:column;gap:10px}
 .rep-card{border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
 .rep-card.total{background:var(--sky);border-color:transparent}
@@ -427,7 +434,7 @@ function makeDb() {
     collection(path) {
       const q = { filters: [], order: null, limit: null };
       const api = {
-        where(f, op, v) { if (f === "workerId" && op === "==") q.filters.push("worker_id=eq." + enc(v)); return api; },
+        where(f, op, v) { if (f === "workerId" && op === "==") q.filters.push("worker_id=eq." + enc(v)); else if (f === "filledBy.workerId" && op === "==") q.filters.push("data->filledBy->>workerId=eq." + enc(v)); return api; },
         orderBy() { q.order = "created_at.desc"; return api; },
         limit(k) { q.limit = k; return api; },
         onSnapshot(cb, err) {
@@ -449,6 +456,9 @@ setTimeout(async () => {
   try {
     db.collection("reports").where("workerId", "==", device).onSnapshot(s => {
       S.mine = s.docs.map(d => d.data()); S.mineLoaded = true; S.online = true; if (S.view === "home") render();
+    }, () => {});
+    db.collection("reports").where("filledBy.workerId", "==", device).onSnapshot(s => {
+      S.mineProxy = s.docs.map(d => d.data()); if (S.view === "home") render();
     }, () => {});
   } catch (e) {}
   if (S.staff) startAll();
@@ -590,10 +600,11 @@ function validate(step) {
     const filled = d.hazards.filter(x => x.h.trim());
     if (f.length && !filled.length) e.hazards = "Есть отметки в серых ячейках. Перечислите опасности и средства их контроля.";
   }
-  if (step === 5 && !d.confirm) e.confirm = "Подтвердите, что заполнили лист лично";
+  if (step === 5 && !d.confirm) e.confirm = d.proxy ? "Подтвердите, что работник согласен со своими ответами" : "Подтвердите, что заполнили лист лично";
   S.errors = e; return !Object.keys(e).length;
 }
 
+function proxyKey(x) { const t = (x.lastName + "|" + x.firstName + "|" + x.site).toLowerCase(); let h = 0; for (const c of t) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h.toString(36); }
 function buildReport() {
   const d = S.draft, p = S.profile;
   const wp = d.workplace === OTHER ? d.workplaceOther.trim() : d.workplace;
@@ -601,9 +612,10 @@ function buildReport() {
   const out = outcome(d);
   return {
     id: d.id, createdAt: new Date().toISOString(), startedAt: d.startedAt,
-    workerId: device,
-    worker: { lastName: p.lastName, firstName: p.firstName, position: p.position },
-    company: ORG.company, complex: ORG.complex, site: p.site,
+    workerId: d.proxy ? "x" + proxyKey(d.proxy) : device,
+    worker: d.proxy ? { lastName: d.proxy.lastName, firstName: d.proxy.firstName, position: d.proxy.position } : { lastName: p.lastName, firstName: p.firstName, position: p.position },
+    filledBy: d.proxy ? { lastName: p.lastName, firstName: p.firstName, position: p.position, workerId: device } : null,
+    company: ORG.company, complex: ORG.complex, site: d.proxy ? d.proxy.site : p.site,
     workplace: wp, task: tk,
     answers: d.answers, flags: flags(d.answers), energies: d.energies,
     hazards: d.hazards.filter(x => x.h.trim()).map(x => ({ h: x.h.trim(), c: x.c.trim() })),
@@ -684,7 +696,7 @@ function render(keepLayer) {
   if (!S.view) S.view = S.staff ? "admin" : (S.profile ? "home" : "register");
   $("#app").className = S.view === "admin" ? "wide" : "narrow";
   renderTop();
-  const v = { register: vRegister, home: vHome, wizard: vWizard, done: vDone, staffLogin: vStaffLogin, admin: vAdmin }[S.view];
+  const v = { register: vRegister, home: vHome, proxy: vProxy, wizard: vWizard, done: vDone, staffLogin: vStaffLogin, admin: vAdmin }[S.view];
   $("#app").innerHTML = v();
   fillPhotos($("#app"));
   if (!keepLayer) renderLayer();
@@ -719,7 +731,7 @@ function myReports() {
   if (S.mineLoaded) {
     store.set("localMine", S.mine.slice().sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 40));
     getQueue().forEach(x => map.set(x.report.id, x.report));
-    S.mine.forEach(r => map.set(r.id, r));
+    S.mine.concat(S.mineProxy || []).forEach(r => map.set(r.id, r));
   } else {
     store.get("localMine", []).forEach(r => map.set(r.id, r));
     getQueue().forEach(x => map.set(x.report.id, x.report));
@@ -740,7 +752,7 @@ const WD = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
 const MON = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
 function shiftCard(list) {
   const now = new Date(), sh = shiftInfo(now);
-  const last = list.find(r => new Date(r.createdAt) >= sh.start);
+  const last = list.find(r => !r.filledBy && new Date(r.createdAt) >= sh.start);
   const meta = `${sh.name} · ${WD[now.getDay()]}, ${now.getDate()} ${MON[now.getMonth()]}`;
   let cls = "warn", ic = "!", title = "SLAM на эту смену ещё не пройден", sub = "Пройдите оценку рисков перед началом работы";
   if (last) {
@@ -790,6 +802,7 @@ function vHome() {
       </div>
       ${draft ? `<button class="btn primary big block" data-a="resume">Продолжить начатую оценку</button><button class="btn block" data-a="start">Начать заново</button>`
               : `<button class="btn primary big block" data-a="start">Начать оценку рисков</button>`}
+      <button class="proxy-bar" data-a="proxyStart"><span class="pic"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 19c.6-3.3 3-5 6-5s5.4 1.7 6 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="17" cy="9" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16.5 14.2c2.4.2 4 1.7 4.5 4.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span><span class="lbl"><b>Заполнить за другого работника</b><small>Если коллеге сложно с телефоном</small></span><span class="chev" aria-hidden="true">›</span></button>
       <p class="small muted">Оценка проводится в начале смены, при смене наряд-задания, при изменении условий на рабочем месте и при подключении нового персонала.</p>
     </div>
     ${S.remoteNote && !db ? `<div class="banner info">${esc(S.remoteNote)}</div>` : ""}
@@ -807,28 +820,47 @@ function mineItem(r) {
   const last = rv && rv.history && rv.history.length ? rv.history[rv.history.length - 1] : null;
   return `<div class="li"><div class="grow">
     <div class="row" style="gap:8px"><span class="pill ${o.cls}">${o.pill}</span>${r.queued ? `<span class="pill wait">Ждёт связи</span>` : ""}${hasRemark(r) ? stPill(r) : ""}</div>
-    <p class="t" style="margin-top:6px">${esc(r.task)}</p>
+    <p class="t" style="margin-top:6px">${esc(r.task)}</p>${r.filledBy ? `<p class="small" style="color:var(--warn);font-weight:600">За работника: ${esc(r.worker.lastName)} ${esc(r.worker.firstName)}</p>` : ""}
     <p class="small muted">${fmtDate(r.createdAt)}, ${fmtTime(r.createdAt)} · ${esc(r.workplace)}</p>
     ${last && (last.comment || last.level) ? `<div class="feedback"><b>Руководитель:</b> ${last.level ? "передано: " + esc(last.level) + ". " : ""}${esc(last.comment || "")}</div>` : ""}
   </div></div>`;
 }
 
+function draftSite(d) { return (d && d.proxy && d.proxy.site) || S.profile.site; }
+function vProxy() {
+  const e = S.errors, f = S.proxyForm || { site: S.profile.site }, recent = store.get("proxyPeople", []);
+  return `<div class="stack">
+    <div class="stack" style="gap:6px"><p class="eyebrow">Помощь коллеге</p><h1>Заполнить за другого работника</h1>
+    <p class="muted">Для коллег, которым сложно с телефоном. Задайте работнику вопросы SLAM вслух и отмечайте его ответы. В конце он подтвердит, что это его ответы.</p></div>
+    ${recent.length ? `<div class="stack" style="gap:8px"><p class="small muted">Недавние</p><div class="chips">${recent.map((r, i) => `<button class="pchip" data-a="proxyPick" data-i="${i}">${esc(r.lastName)} ${esc(r.firstName)}</button>`).join("")}</div></div>` : ""}
+    <div class="card stack">
+      <div class="field"><label for="x-last">Фамилия работника</label><input id="x-last" class="input" value="${esc(f.lastName || "")}">${e.lastName ? `<span class="err">${e.lastName}</span>` : ""}</div>
+      <div class="field"><label for="x-first">Имя</label><input id="x-first" class="input" value="${esc(f.firstName || "")}">${e.firstName ? `<span class="err">${e.firstName}</span>` : ""}</div>
+      <div class="field"><label for="x-pos">Должность</label><input id="x-pos" class="input" list="positions2" value="${esc(f.position || "")}" placeholder="Например, монтёр пути">
+        <datalist id="positions2">${POSITIONS.map(x => `<option value="${esc(x)}">`).join("")}</datalist>${e.position ? `<span class="err">${e.position}</span>` : ""}</div>
+      <div class="field"><label for="x-site">Участок</label><select id="x-site" class="input">${SITES.map(x => `<option value="${x.id}" ${f.site === x.id ? "selected" : ""}>${x.name}</option>`).join("")}</select></div>
+      <p class="small muted">Заполняет: ${esc(S.profile.lastName)} ${esc(S.profile.firstName)}, ${esc(S.profile.position)}</p>
+    </div>
+    <button class="btn primary big block" data-a="proxyGo">Начать оценку за работника</button>
+    <button class="btn ghost" data-a="home">Отмена</button></div>`;
+}
 function vWizard() {
   const d = S.draft, e = S.errors, st = S.step;
   const nav = (next, label) => `<div class="sticky-nav"><button class="btn" data-a="back">${st === 0 ? "Отмена" : "Назад"}</button><button class="btn primary" data-a="${next}">${label}</button></div>`;
   const head = `<div class="stack" style="gap:8px"><div class="steps">${STEPS.map((s, i) => `<i class="${i <= st ? "on" : ""}"></i>`).join("")}</div>
-    <p class="eyebrow">Шаг ${st + 1} из ${STEPS.length} · ${STEPS[st]}</p></div>`;
+    <p class="eyebrow">Шаг ${st + 1} из ${STEPS.length} · ${STEPS[st]}</p>
+    ${d.proxy ? `<div class="banner proxy"><span>Вы заполняете за работника: <b>${esc(d.proxy.lastName)} ${esc(d.proxy.firstName)}</b>, ${esc(d.proxy.position)}</span></div>` : ""}</div>`;
   if (st === 0) {
-    const dir = dirFor(S.profile.site);
+    const dir = dirFor(draftSite(d));
     const now = new Date(d.startedAt);
     return `<div class="stack">${head}<h1>Задание на смену</h1>
       <div class="card stack">
-        <div class="row" style="gap:16px"><div><p class="small muted">Дата</p><p class="num"><b>${fmtDate(now)}</b></p></div><div><p class="small muted">Время</p><p class="num"><b>${fmtTime(now)}</b></p></div><div><p class="small muted">Участок</p><p><b>${esc(siteName(S.profile.site))}</b></p></div></div>
+        <div class="row" style="gap:16px"><div><p class="small muted">Дата</p><p class="num"><b>${fmtDate(now)}</b></p></div><div><p class="small muted">Время</p><p class="num"><b>${fmtTime(now)}</b></p></div><div><p class="small muted">Участок</p><p><b>${esc(siteName(draftSite(d)))}</b></p></div></div>
         <div class="field"><label for="w-wp">Рабочее место</label><select id="w-wp" class="input" data-bind="workplace"><option value="">Выберите из списка</option>${dir.workplaces.map(x => `<option ${d.workplace === x ? "selected" : ""}>${esc(x)}</option>`).join("")}<option value="${OTHER}" ${d.workplace === OTHER ? "selected" : ""}>Другое…</option></select>
           ${d.workplace === OTHER ? `<input id="w-wpo" class="input" data-bind="workplaceOther" placeholder="Укажите рабочее место" value="${esc(d.workplaceOther)}">` : ""}${e.workplace ? `<span class="err">${e.workplace}</span>` : ""}</div>
         <div class="field"><label for="w-tk">Задание</label><select id="w-tk" class="input" data-bind="task"><option value="">Выберите из списка</option>${dir.tasks.map(x => `<option ${d.task === x ? "selected" : ""}>${esc(x)}</option>`).join("")}<option value="${OTHER}" ${d.task === OTHER ? "selected" : ""}>Другое…</option></select>
           ${d.task === OTHER ? `<input id="w-tko" class="input" data-bind="taskOther" placeholder="Опишите задание" value="${esc(d.taskOther)}">` : ""}${e.task ? `<span class="err">${e.task}</span>` : ""}</div>
-        <p class="small muted">${esc(S.profile.lastName)} ${esc(S.profile.firstName)}, ${esc(S.profile.position)}</p>
+        <p class="small muted">${d.proxy ? `Работник: ${esc(d.proxy.lastName)} ${esc(d.proxy.firstName)}, ${esc(d.proxy.position)} · заполняет ${esc(S.profile.lastName)} ${esc(S.profile.firstName)}` : `${esc(S.profile.lastName)} ${esc(S.profile.firstName)}, ${esc(S.profile.position)}`}</p>
       </div>${nav("next", "Далее")}</div>`;
   }
   if (st === 1) return `<div class="stack">${head}<h1>Задай самому себе эти вопросы</h1>
@@ -869,12 +901,12 @@ function vWizard() {
     <div class="verdict ${out.cls}"><b>${out.title}</b><p>${out.text}</p></div>
     <div class="card stack">
       <h3>${esc(d.task === OTHER ? d.taskOther : d.task)}</h3>
-      <p class="small muted">${esc(d.workplace === OTHER ? d.workplaceOther : d.workplace)} · ${esc(siteName(S.profile.site))}</p>
+      <p class="small muted">${esc(d.workplace === OTHER ? d.workplaceOther : d.workplace)} · ${esc(siteName(draftSite(d)))}</p>
       <div>${QUESTIONS.map(q => `<div class="ans"><span class="num muted">${q.n}</span><span>${esc(QSHORT[q.n])}</span><span class="pill ${isBad(q, d.answers[q.n]) ? "warn" : "go"}">${d.answers[q.n] === "yes" ? "Да" : d.answers[q.n] === "no" ? "Нет" : "—"}</span></div>`).join("")}</div>
       <p class="small muted">Опасностей: ${d.hazards.filter(x => x.h.trim()).length} · Фото: ${d.photos.length}${f.length ? " · В серых ячейках: " + f.length : ""}</p>
     </div>
     <label class="card row" for="w-conf" style="gap:12px;flex-wrap:nowrap;align-items:flex-start"><input type="checkbox" id="w-conf" data-bind="confirm" ${d.confirm ? "checked" : ""} style="width:22px;height:22px;flex:none;margin-top:2px">
-      <span>Я, ${esc(S.profile.lastName)} ${esc(S.profile.firstName)}, лично провёл оценку рисков на рабочем месте. Это заменяет подпись в бумажном бланке.</span></label>
+      <span>${d.proxy ? `Работник ${esc(d.proxy.lastName)} ${esc(d.proxy.firstName)} ответил на вопросы и подтвердил, что это его ответы. Заполнил(а): ${esc(S.profile.lastName)} ${esc(S.profile.firstName)}.` : `Я, ${esc(S.profile.lastName)} ${esc(S.profile.firstName)}, лично провёл оценку рисков на рабочем месте. Это заменяет подпись в бумажном бланке.`}</span></label>
     ${e.confirm ? `<span class="err">${e.confirm}</span>` : ""}
     <div class="sticky-nav"><button class="btn" data-a="back">Назад</button><button class="btn primary" data-a="submit">Отправить чек-лист</button></div></div>`;
 }
@@ -894,7 +926,7 @@ function vDone() {
   const sending = queued && S.syncing;
   return `<div class="stack">
     <div class="verdict ${o.cls}"><b>${o.title}</b><p>${o.text}</p></div>
-    <div class="card stack"><h2>${sending ? "Отправка чек-листа…" : queued ? "Чек-лист сохранён на телефоне" : "Чек-лист отправлен"}</h2>
+    <div class="card stack"><h2>${sending ? "Отправка чек-листа…" : queued ? "Чек-лист сохранён на телефоне" : "Чек-лист отправлен"}</h2>${r.filledBy ? `<p><span class="pill warn">За работника</span> ${esc(r.worker.lastName)} ${esc(r.worker.firstName)}</p>` : ""}
       ${hasRemark(r) ? `<p><span class="pill warn">Есть замечание</span> Непосредственный руководитель получит уведомление.</p>` : `<p><span class="pill go">Замечаний нет</span> Уведомления не отправляются.</p>`}
       <p class="muted">${sending ? "Подождите пару секунд." : queued ? "Связи нет. Приложение отправит чек-лист само, как только появится интернет. Можно закрыть окно, данные не потеряются." : "Ответ руководителя по замечанию появится в разделе «Мои оценки»."}</p></div>
     <div class="card stack"><h3>Во время работы</h3><p class="small muted">Если изменилось состояние рабочего места или условия работы, остановите работу и заполните новый чек-лист.</p>
@@ -1215,7 +1247,7 @@ function renderLayer() {
   $("#layer").innerHTML = `<div class="overlay" data-a="closeDetail"><div class="sheet stack" role="dialog" aria-modal="true" aria-label="Чек-лист SLAM" data-stop="1">
     <div class="row" style="justify-content:space-between"><span class="pill ${o.cls}">${o.pill}</span><button class="btn ghost" data-a="closeDetail">Закрыть</button></div>
     <div class="stack" style="gap:4px"><h2>${esc(r.task)}</h2><p class="muted small">${esc(r.workplace)} · ${esc(siteName(r.site))}</p>
-      <p class="small">${esc(r.worker.lastName)} ${esc(r.worker.firstName)}, ${esc(r.worker.position)} · ${fmtDate(r.createdAt)}, ${fmtTime(r.createdAt)}</p></div>
+      <p class="small">${esc(r.worker.lastName)} ${esc(r.worker.firstName)}, ${esc(r.worker.position)} · ${fmtDate(r.createdAt)}, ${fmtTime(r.createdAt)}</p>${r.filledBy ? `<p class="small" style="color:var(--warn);font-weight:600">Заполнил(а) за работника: ${esc(r.filledBy.lastName)} ${esc(r.filledBy.firstName)}, ${esc(r.filledBy.position)}</p>` : ""}</div>
     <div class="card">${QUESTIONS.map(q => `<div class="ans"><span class="num muted">${q.n}</span><span>${esc(q.text)}</span><span class="pill ${isBad(q, r.answers[q.n]) ? "warn" : "go"}">${r.answers[q.n] === "yes" ? "Да" : r.answers[q.n] === "no" ? "Нет" : "—"}</span></div>`).join("")}</div>
     ${(r.energies || []).length ? `<p class="small"><b>Виды энергии:</b> ${ENERGIES.filter(e => r.energies.includes(e.id)).map(e => e.name).join(", ")}</p>` : ""}
     <div class="card stack"><h3>Опасности и средства контроля</h3>
@@ -1288,6 +1320,14 @@ document.addEventListener("click", async (ev) => {
       S.errors = e; if (Object.keys(e).length) { render(); return; }
       S.profile = p; store.set("profile", p); S.view = "home"; render(); break; }
     case "editProfile": S.view = "register"; S.errors = {}; render(); break;
+    case "proxyStart": S.view = "proxy"; S.errors = {}; S.proxyForm = { site: S.profile.site }; render(); window.scrollTo(0, 0); break;
+    case "proxyPick": { const r = store.get("proxyPeople", [])[+t.dataset.i]; if (r) { S.proxyForm = Object.assign({}, r); S.errors = {}; render(); } break; }
+    case "proxyGo": {
+      const f = { lastName: $("#x-last").value.trim(), firstName: $("#x-first").value.trim(), position: $("#x-pos").value.trim(), site: $("#x-site").value };
+      const e = {}; if (!f.lastName) e.lastName = "Укажите фамилию"; if (!f.firstName) e.firstName = "Укажите имя"; if (!f.position) e.position = "Укажите должность";
+      S.errors = e; S.proxyForm = f; if (Object.keys(e).length) { render(); break; }
+      const recent = store.get("proxyPeople", []).filter(x => proxyKey(x) !== proxyKey(f)); recent.unshift(f); store.set("proxyPeople", recent.slice(0, 8));
+      S.draft = newDraft(); S.draft.proxy = f; saveDraft(); S.step = 0; S.errors = {}; S.view = "wizard"; render(); window.scrollTo(0, 0); break; }
     case "start": S.draft = newDraft(); saveDraft(); S.step = 0; S.errors = {}; S.view = "wizard"; render(); window.scrollTo(0, 0); break;
     case "resume": S.draft = store.get("draft", null) || newDraft(); S.step = S.draft.step || 0; S.errors = {}; S.view = "wizard"; render(); break;
     case "back":
