@@ -937,14 +937,14 @@ function vAdmin() {
   return `<div class="stack">
     <div class="row" style="justify-content:space-between;align-items:flex-end">
       <div class="stack" style="gap:4px"><p class="eyebrow">${esc(ORG.company)}</p><h1>${esc(title)}</h1></div>
-      <div class="row"><button class="btn small" data-a="toggleDemo">${S.demo ? "Скрыть пример" : "Показать пример данных"}</button><button class="btn ghost small" data-a="logout">Выйти</button></div>
+      <div class="row"><button class="btn ghost small" data-a="logout">Выйти</button></div>
     </div>
     ${S.demo ? `<div class="banner demo">Демонстрационные данные для показа. Это не реальные оценки, в базу они не записаны.</div>` : ""}
     ${S.remoteNote && !S.demo ? `<div class="banner info">${esc(S.remoteNote)}</div>` : ""}
     ${st.role === "lead" && !S.demo && (typeof Notification === "undefined" || Notification.permission !== "granted" || !S.pushOn) ? `<div class="banner info"><span><b>Push-уведомления о замечаниях.</b> ${isIOS() && !isStandalone() ? "На iPhone они работают, только если SLAM установлен на экран «Домой»." : "Включите, чтобы получать замечания своего участка даже при закрытом приложении."}</span><button class="btn small primary" data-a="enablePush">Включить</button></div>` : ""}
     ${st.role === "lead" && nNew ? `<div class="banner bell" role="status"><span class="bell-ic" aria-hidden="true">●</span><b>Новых замечаний: ${nNew}.</b> Откройте замечание и примите решение.</div>` : ""}
     <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" class="${S.tab === k ? "on" : ""}" data-a="tab" data-v="${k}">${l}</button>`).join("")}</div>
-    ${noData && S.tab !== "dir" ? `<div class="card empty"><h2 style="color:var(--ink)">Пока нет ни одной оценки</h2><p>Как только работники заполнят чек-листы SLAM на телефонах, они появятся здесь. Замечания придут уведомлением непосредственному руководителю участка.</p><button class="btn" data-a="toggleDemo">Показать пример данных</button></div>` : body}
+    ${noData && S.tab !== "dir" ? `<div class="card empty"><h2 style="color:var(--ink)">Пока нет ни одной оценки</h2><p>Как только работники заполнят чек-листы SLAM на телефонах, они появятся здесь. Замечания придут уведомлением непосредственному руководителю участка.</p></div>` : body}
   </div>`;
 }
 
