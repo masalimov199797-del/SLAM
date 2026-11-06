@@ -158,7 +158,7 @@ textarea.input{min-height:72px;resize:vertical}
 .feedback{margin-top:6px;padding:8px 10px;border-radius:8px;background:var(--sky);font-size:13px}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;z-index:30;max-width:calc(100% - 32px)}
 /* dashboard */
-.tabs{display:flex;gap:4px;background:var(--sunk);border-radius:12px;padding:4px;overflow-x:auto}
+.tabs{display:flex;gap:4px;background:var(--sunk);border-radius:12px;padding:4px;flex-wrap:wrap}
 .tabs button{border:0;background:none;padding:9px 14px;border-radius:9px;font-weight:600;color:var(--muted);white-space:nowrap}
 .tabs button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
 .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
@@ -203,6 +203,12 @@ tr.click{cursor:pointer}tr.click:hover td{background:var(--sunk)}
 .seg button{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 14px;font-weight:600;min-height:44px;flex:1}
 .seg button.on{border-color:var(--blue);background:var(--sky);color:var(--blue)}
 .footer-link{text-align:center;padding-top:8px}
+.rep-cards{display:none;flex-direction:column;gap:10px}
+.rep-card{border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.rep-card.total{background:var(--sky);border-color:transparent}
+.rep-grid{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;font-size:14px}
+.rep-grid span{color:var(--muted)}.rep-grid b{font-variant-numeric:tabular-nums;text-align:right}
+@media (max-width:640px){.rep-table{display:none}.rep-cards{display:flex}}
 .gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
 @media (max-width:420px){.gallery{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}
 .gitem{position:relative;border:0;padding:0;border-radius:12px;overflow:hidden;background:var(--sunk);aspect-ratio:1;max-width:100%;cursor:pointer;text-align:left}
@@ -926,12 +932,13 @@ function vAdmin() {
   const title = st.role === "lead" ? "Непосредственный руководитель · " + siteName(st.site) : "Администратор · " + ORG.complex;
   const all = scoped(), nNew = all.filter(r => statusOf(r) === "new").length;
   const tabs = [["remarks", "Замечания" + (nNew ? " · " + nNew : "")], ["overview", "Обзор"], ["photos", "Фото"], ["reports", "Все оценки"]];
-  if (st.role === "admin") tabs.push(["dir", "Справочники"]);
+  if (st.role === "admin") tabs.push(["report", "Отчёт"], ["dir", "Справочники"]);
   let body = "";
   if (S.tab === "overview") body = vOverview();
   else if (S.tab === "remarks") body = vRemarks();
   else if (S.tab === "reports") body = vReportsTab();
   else if (S.tab === "photos") body = vGallery();
+  else if (S.tab === "report") body = vReport();
   else body = vDirectory();
   const noData = !S.demo && !allReports().length;
   return `<div class="stack">
@@ -997,6 +1004,14 @@ function vOverview() {
   const qs = Object.entries(qc).sort((a, b) => b[1] - a[1]).slice(0, 6);
   const maxQ = Math.max(1, ...qs.map(x => x[1]));
   const remarks = list.filter(r => r.remarks || (r.hazards || []).some(h => !h.c)).slice(0, 6);
+  // частые опасности: одинаковые формулировки из таблицы «Опасности»
+  const hz = {};
+  list.forEach(r => { const seen = new Set(); (r.hazards || []).forEach(h => { const k = h.h.trim().toLowerCase().replace(/\s+/g, " "); if (!k || seen.has(k)) return; seen.add(k); (hz[k] = hz[k] || { t: h.h.trim(), n: 0 }).n++; }); });
+  const topHz = Object.values(hz).sort((a, b) => b.n - a.n).slice(0, 5);
+  const maxHz = Math.max(1, ...topHz.map(x => x.n));
+  // передано выше: все открытые, старые сверху
+  const esc8 = scoped().filter(r => statusOf(r) === "escalated").sort((a, b) => (a.review.at || "").localeCompare(b.review.at || ""));
+  const daysAgo = (iso) => Math.max(0, Math.floor((Date.now() - new Date(iso)) / 86400000));
   return `<div class="stack">
     ${filtersBar(false)}
     <div class="kpis">
@@ -1015,12 +1030,77 @@ function vOverview() {
       <div class="card stack"><h2>Частые отметки в серых ячейках</h2>
         ${qs.length ? qs.map(([n, c]) => `<div class="hbar"><span>${n}. ${esc(QSHORT[n])}</span><div class="track"><i class="w" style="width:${c / maxQ * 100}%"></i></div><span class="n">${c}</span></div>`).join("") : `<p class="muted small">За период отметок нет.</p>`}
       </div>
+      <div class="card stack"><h2>Частые опасности</h2>
+        ${topHz.length ? topHz.map(x => `<div class="hbar"><span title="${esc(x.t)}">${esc(x.t.length > 34 ? x.t.slice(0, 33) + "…" : x.t)}</span><div class="track"><i class="a" style="width:${x.n / maxHz * 100}%"></i></div><span class="n">${x.n}</span></div>`).join("") : `<p class="muted small">За период опасности не указаны.</p>`}
+        <p class="small muted">Сколько чек-листов за период содержат эту опасность.</p>
+      </div>
+      <div class="card stack"><div class="row" style="justify-content:space-between"><h2>Передано выше</h2><span class="pill ${esc8.length ? "warn" : "go"}">${esc8.length}</span></div>
+        ${esc8.length ? `<div class="list">${esc8.slice(0, 8).map(r => { const d = daysAgo(r.review.at); return `<button class="li" data-a="open" data-id="${r.id}"><div class="grow"><p class="t">${esc(remarkSummary(r))}</p><p class="small muted">${esc(r.review.level || "")} · ${esc(siteName(r.site))}</p></div><span class="pill ${d >= 3 ? "stop" : "wait"}">${d ? d + " дн." : "сегодня"}</span></button>`; }).join("")}</div>` : `<p class="muted small">Замечаний, ожидающих решения руководства, нет.</p>`}
+      </div>
       <div class="card stack"><h2>Свежие замечания</h2>
         ${remarks.length ? `<div class="list">${remarks.map(r => `<button class="li" data-a="open" data-id="${r.id}"><div class="grow"><p class="t">${esc(r.remarks || "Опасность без средства контроля: " + r.hazards.find(h => !h.c).h)}</p><p class="small muted">${fmtDate(r.createdAt)} · ${esc(r.worker.lastName)} · ${esc(siteName(r.site))}${r.photoCount ? " · фото: " + r.photoCount : ""}</p></div></button>`).join("")}</div>` : `<p class="muted small">Замечаний за период нет.</p>`}
       </div>
     </div></div>`;
 }
 
+/* ===== Отчёт по форме Приложения 2 ===== */
+const PERIOD_LABEL = { "1": "сегодня", "7": "последние 7 дней", "30": "последние 30 дней" };
+function reportData() {
+  const list = inPeriod(scoped());
+  const sites = S.siteFilter === "all" ? SITES : SITES.filter(x => x.id === S.siteFilter);
+  const row = (name, l) => {
+    const rm = l.filter(hasRemark), st = k => rm.filter(r => statusOf(r) === k).length;
+    const lvl = n => rm.filter(r => statusOf(r) === "escalated" && r.review.level === n).length;
+    return { name, workers: new Set(l.map(r => r.workerId)).size, lists: l.length, remarks: rm.length, fixed: st("fixed"), inwork: st("inwork"),
+      escU: lvl(LEVELS[0]), escC: lvl(LEVELS[1]), escD: lvl(LEVELS[2]), notfixed: st("notfixed"), fresh: st("new") };
+  };
+  const rows = sites.map(x => row(x.name, list.filter(r => r.site === x.id)));
+  const total = row("Итого", list.filter(r => sites.some(x => x.id === r.site)));
+  const items = list.filter(r => hasRemark(r) && sites.some(x => x.id === r.site)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return { rows, total, items };
+}
+const RCOLS = [["workers", "Работников"], ["lists", "Чек-листов SLAM"], ["remarks", "Замечаний"], ["fixed", "Устранено"], ["inwork", "В работе"],
+  ["escU", "Передано нач. участка"], ["escC", "Передано нач. цеха"], ["escD", "Передано директору"], ["notfixed", "Не устранено"], ["fresh", "Без решения"]];
+function vReport() {
+  const { rows, total, items } = reportData();
+  return `<div class="stack">${filtersBar(false)}
+    <div class="card stack">
+      <div class="row" style="justify-content:space-between;align-items:flex-start"><div class="stack" style="gap:2px"><h2>Отчёт по SLAM</h2><p class="small muted">По форме Приложения 2 к инструкции И-(18)-05 · ${esc(ORG.complex)} · ${PERIOD_LABEL[S.period]}</p></div>
+        <button class="btn primary small" data-a="exportReport">Скачать в Excel</button></div>
+      <div class="rep-cards">${rows.concat([total]).map(r => `<div class="rep-card ${r === total ? "total" : ""}"><h3>${esc(r.name)}</h3><div class="rep-grid">${RCOLS.map(c => `<span>${c[1]}</span><b>${r[c[0]]}</b>`).join("")}</div></div>`).join("")}</div>
+      <div class="tbl-wrap rep-table"><table><thead><tr><th>Участок</th>${RCOLS.map(c => `<th class="num">${c[1]}</th>`).join("")}</tr></thead><tbody>
+        ${rows.map(r => `<tr><td>${esc(r.name)}</td>${RCOLS.map(c => `<td class="num">${r[c[0]]}</td>`).join("")}</tr>`).join("")}
+        <tr style="font-weight:700"><td>${total.name}</td>${RCOLS.map(c => `<td class="num">${total[c[0]]}</td>`).join("")}</tr>
+      </tbody></table></div>
+    </div>
+    <div class="card stack">
+      <div class="row" style="justify-content:space-between"><h2>Перечень замечаний и мероприятий</h2><span class="pill info">${items.length}</span></div>
+      ${items.length ? `<div class="tbl-wrap"><table><thead><tr><th>Дата</th><th>Участок</th><th>Работник</th><th>Замечание</th><th>Статус</th><th>Срок</th><th>Ответственный</th></tr></thead><tbody>
+        ${items.slice(0, 300).map(r => `<tr class="click" data-a="open" data-id="${r.id}" tabindex="0"><td class="num" style="white-space:nowrap">${fmtDate(r.createdAt)}</td><td>${esc(siteName(r.site).replace(" участок", ""))}</td><td>${esc(r.worker.lastName)} ${esc(r.worker.firstName)}</td><td style="min-width:200px">${esc(remarkSummary(r))}</td><td>${stPill(r)}</td><td class="num">${r.review && r.review.due ? fmtDate(r.review.due + "T00:00") : "—"}</td><td>${esc(r.review ? (r.review.level || r.review.by || "") : "")}</td></tr>`).join("")}
+      </tbody></table></div>` : `<p class="muted small">За выбранный период замечаний нет.</p>`}
+    </div></div>`;
+}
+function csvOf(rows) { return "\ufeff" + rows.map(r => r.map(v => { v = String(v == null ? "" : v); return /[;"\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(";")).join("\r\n") + "\r\n"; }
+async function saveFile(name, text) {
+  try {
+    const dl = window.claude && window.claude.use ? await window.claude.use("downloads") : null;
+    if (dl) { await dl.save({ filename: name, data: text }); return true; }
+  } catch (e) { if (e && e.code) { toast("Скачивание отменено"); return false; } }
+  try {
+    const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000); return true;
+  } catch (e) { toast("Не удалось скачать файл"); return false; }
+}
+function exportReport() {
+  const { rows, total, items } = reportData();
+  const head = [["Отчёт по индивидуальной оценке рисков SLAM (по форме Приложения 2 к И-(18)-05)"], [ORG.company + " · " + ORG.complex], ["Период: " + PERIOD_LABEL[S.period] + " · сформирован " + fmtDate(new Date().toISOString()) + " " + fmtTime(new Date().toISOString())], []];
+  const sum = [["Участок", ...RCOLS.map(c => c[1])], ...rows.map(r => [r.name, ...RCOLS.map(c => r[c[0]])]), [total.name, ...RCOLS.map(c => total[c[0]])]];
+  const list = [[], ["Перечень замечаний и мероприятий"], ["Дата", "Время", "Участок", "Работник", "Должность", "Задание", "Рабочее место", "Замечание", "Статус", "Срок устранения", "Кому передано", "Ответственный", "Комментарий"],
+    ...items.map(r => [fmtDate(r.createdAt), fmtTime(r.createdAt), siteName(r.site), r.worker.lastName + " " + r.worker.firstName, r.worker.position, r.task, r.workplace, remarkSummary(r), ST[statusOf(r)].l,
+      r.review && r.review.due ? fmtDate(r.review.due + "T00:00") : "", r.review && r.review.level || "", r.review && r.review.by || "", r.review && r.review.comment || ""])];
+  saveFile("SLAM_otchet_" + dayKey(new Date()) + ".csv", csvOf([...head, ...sum, ...list])).then(ok => { if (ok) toast("Отчёт сохранён"); });
+}
 function vReportsTab() {
   let list = inPeriod(scoped());
   const f = S.statusFilter;
@@ -1262,6 +1342,7 @@ document.addEventListener("click", async (ev) => {
     case "enablePush": unlockAudio(); registerPush(true); break;
     case "install": if (installEvt) { installEvt.prompt(); installEvt.userChoice.finally(() => { installEvt = null; render(); }); } break;
     case "hideInstall": store.set("hideInstall", true); render(); break;
+    case "exportReport": exportReport(); break;
     case "saveDir": case "saveDirAll": {
       if (!db) { toast("Нет связи с базой"); break; }
       const lines = (id) => $(id).value.split("\n").map(x => x.trim()).filter(Boolean);
